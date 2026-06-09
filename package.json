@@ -1,0 +1,20 @@
+{
+  "name": "pal-architect-telegram",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "trigger dev",
+    "deploy": "trigger deploy",
+    "vercel:dev": "vercel dev",
+    "vercel:deploy": "vercel deploy --prod",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@trigger.dev/sdk": "^3.3.0"
+  },
+  "devDependencies": {
+    "@vercel/node": "^3.2.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}
