@@ -193,13 +193,25 @@ function anthropicHeaders() {
 }
 
 async function createAgentSession(): Promise<string> {
+  const body: Record<string, unknown> = {
+    agent: process.env.PAL_ARCHITECT_AGENT_ID,
+    environment_id: process.env.PAL_ARCHITECT_ENVIRONMENT_ID,
+  };
+
+  // The agent declares MCP servers (e.g. `airtable`), but MCP credentials live
+  // in a vault that must be attached to the session at create time — they can't
+  // live on the agent. Without this, MCP init fails with "no credential is
+  // stored for this server URL". Supports comma-separated IDs for multiple vaults.
+  const vaultIds = (process.env.PAL_ARCHITECT_VAULT_ID ?? "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  if (vaultIds.length > 0) body.vault_ids = vaultIds;
+
   const res = await fetch("https://api.anthropic.com/v1/sessions", {
     method: "POST",
     headers: anthropicHeaders(),
-    body: JSON.stringify({
-      agent: process.env.PAL_ARCHITECT_AGENT_ID,
-      environment_id: process.env.PAL_ARCHITECT_ENVIRONMENT_ID,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
