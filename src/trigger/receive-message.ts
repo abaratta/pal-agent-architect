@@ -1,4 +1,4 @@
-import { task, tasks } from "@trigger.dev/sdk/v3";
+import { task, tasks } from "@trigger.dev/sdk";
 
 const AIRTABLE_BASE_ID = "appV4SwdhwJJeby23";
 const AIRTABLE_TABLE_ID = "tbl6bBVvPieFwIomB";
