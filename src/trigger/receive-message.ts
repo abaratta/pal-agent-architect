@@ -196,7 +196,10 @@ async function createAgentSession(): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/managed-agents/sessions", {
     method: "POST",
     headers: anthropicHeaders(),
-    body: JSON.stringify({ agent_id: process.env.PAL_ARCHITECT_AGENT_ID }),
+    body: JSON.stringify({
+      agent: process.env.PAL_ARCHITECT_AGENT_ID,
+      environment_id: process.env.PAL_ARCHITECT_ENVIRONMENT_ID,
+    }),
   });
 
   if (!res.ok) {
@@ -218,10 +221,7 @@ async function sendMessageToAgent(
       method: "POST",
       headers: anthropicHeaders(),
       body: JSON.stringify({
-        event: {
-          type: "human_turn",
-          content: [{ type: "text", text: userMessage }],
-        },
+        events: [{ type: "user.message", content: [{ type: "text", text: userMessage }] }],
       }),
     }
   );
