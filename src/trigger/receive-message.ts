@@ -115,11 +115,14 @@ export const receiveMessage = task({
     console.log(`[receive-message] Agent responded with ${agentResponse.length} chars`);
 
     // Response is ready — clear the 👀 reaction (empty array removes the bot's
-    // reaction). Non-blocking; the reply is sent right after.
+    // reaction). Awaited: this is the last work before the run ends, so a
+    // fire-and-forget fetch would be torn down with the worker before it flushes.
     if (message_id !== undefined) {
-      setMessageReaction(chat_id, message_id, null).catch((err) =>
-        console.error("[receive-message] Failed to clear reaction:", err)
-      );
+      try {
+        await setMessageReaction(chat_id, message_id, null);
+      } catch (err) {
+        console.error("[receive-message] Failed to clear reaction:", err);
+      }
     }
 
     // Trigger send-reply (fire-and-forget — it has its own retry)
