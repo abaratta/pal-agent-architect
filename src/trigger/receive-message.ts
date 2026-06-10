@@ -193,7 +193,7 @@ function anthropicHeaders() {
 }
 
 async function createAgentSession(): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/managed-agents/sessions", {
+  const res = await fetch("https://api.anthropic.com/v1/sessions", {
     method: "POST",
     headers: anthropicHeaders(),
     body: JSON.stringify({
@@ -207,16 +207,42 @@ async function createAgentSession(): Promise<string> {
     throw new Error(`Failed to create agent session: ${res.status} ${err}`);
   }
 
-  const data = (await res.json()) as { session_id: string };
-  return data.session_id;
+  // The Session object's identifier is `id` (e.g. "sesn_…"), not `session_id`.
+  const data = (await res.json()) as { id: string };
+  return data.id;
 }
+
+type AgentEvent = {
+  type: string;
+  content?: { type: string; text?: string }[];
+  stop_reason?: { type: string };
+  error?: { message?: string };
+};
 
 async function sendMessageToAgent(
   session_id: string,
   userMessage: string
 ): Promise<string> {
-  const res = await fetch(
-    `https://api.anthropic.com/v1/managed-agents/sessions/${session_id}/events`,
+  // Managed Agents are asynchronous: POSTing the message only *enqueues* it.
+  // The agent's reply arrives as `agent.message` events on the SSE stream, so
+  // we must open the stream and read until the session goes idle/terminates.
+  //
+  // Stream-first ordering: open the stream BEFORE sending so we don't miss any
+  // events (the stream has no replay and only delivers events emitted after it
+  // opens).
+  const streamRes = await fetch(
+    `https://api.anthropic.com/v1/sessions/${session_id}/events/stream`,
+    { headers: anthropicHeaders() }
+  );
+
+  if (!streamRes.ok || !streamRes.body) {
+    const err = await streamRes.text();
+    throw new Error(`Failed to open session stream: ${streamRes.status} ${err}`);
+  }
+
+  // Enqueue the user message.
+  const sendRes = await fetch(
+    `https://api.anthropic.com/v1/sessions/${session_id}/events`,
     {
       method: "POST",
       headers: anthropicHeaders(),
@@ -226,32 +252,62 @@ async function sendMessageToAgent(
     }
   );
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Agent API error: ${res.status} ${err}`);
+  if (!sendRes.ok) {
+    const err = await sendRes.text();
+    // Drain the stream we opened so the connection doesn't dangle.
+    await streamRes.body.cancel().catch(() => {});
+    throw new Error(`Agent API error: ${sendRes.status} ${err}`);
   }
 
-  // Parse SSE stream — accumulate text_delta events
-  const raw = await res.text();
+  const reader = streamRes.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
   let fullText = "";
 
-  for (const line of raw.split("\n")) {
-    if (!line.startsWith("data: ")) continue;
-    try {
-      const event = JSON.parse(line.slice(6)) as {
-        type: string;
-        delta?: { type: string; text?: string };
-      };
-      if (
-        event.type === "content_block_delta" &&
-        event.delta?.type === "text_delta" &&
-        event.delta.text
-      ) {
-        fullText += event.delta.text;
+  try {
+    let done = false;
+    while (!done) {
+      const { value, done: streamDone } = await reader.read();
+      if (streamDone) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE frames are separated by a blank line.
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+
+      for (const frame of frames) {
+        for (const line of frame.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload) continue;
+
+          let event: AgentEvent;
+          try {
+            event = JSON.parse(payload) as AgentEvent;
+          } catch {
+            continue; // skip heartbeats / non-JSON lines
+          }
+
+          if (event.type === "agent.message") {
+            for (const block of event.content ?? []) {
+              if (block.type === "text" && block.text) fullText += block.text;
+            }
+          } else if (event.type === "session.error") {
+            throw new Error(`Session error: ${event.error?.message ?? "unknown"}`);
+          } else if (event.type === "session.status_terminated") {
+            done = true;
+          } else if (
+            event.type === "session.status_idle" &&
+            event.stop_reason?.type !== "requires_action"
+          ) {
+            // Idle with a terminal stop_reason (end_turn / retries_exhausted).
+            done = true;
+          }
+        }
       }
-    } catch {
-      // skip non-JSON lines (comments, empty data, etc.)
     }
+  } finally {
+    await reader.cancel().catch(() => {});
   }
 
   return fullText;
