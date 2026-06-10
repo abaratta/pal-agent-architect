@@ -114,6 +114,15 @@ export const receiveMessage = task({
     const agentResponse = await sendMessageToAgent(session_id, text);
     console.log(`[receive-message] Agent responded with ${agentResponse.length} chars`);
 
+    // Defensive: the agent sometimes ends a turn with no user-facing text
+    // (only tool calls / thinking). An empty Telegram message is rejected by
+    // the API, so without this the run would error and the user gets nothing.
+    // Send a fallback so there is always a reply. The real fix is the prompt
+    // contract that requires the agent to end every turn with a message.
+    const replyText = agentResponse.trim()
+      ? agentResponse
+      : "✅ Done — I finished that step but didn't return a written reply. Send me a message if you'd like a summary of what happened.";
+
     // Response is ready — clear the 👀 reaction (empty array removes the bot's
     // reaction). Awaited: this is the last work before the run ends, so a
     // fire-and-forget fetch would be torn down with the worker before it flushes.
@@ -128,7 +137,7 @@ export const receiveMessage = task({
     // Trigger send-reply (fire-and-forget — it has its own retry)
     await tasks.trigger("pal-architect/send-reply", {
       chat_id,
-      text: agentResponse,
+      text: replyText,
     });
 
     console.log(`[receive-message] Triggered send-reply for chat_id=${chat_id}`);
