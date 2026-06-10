@@ -8,6 +8,7 @@ type ReceiveMessagePayload = {
   chat_id: string;
   text: string | undefined;
   first_name: string;
+  message_id?: number;
 };
 
 type AirtableRecord = {
@@ -28,7 +29,7 @@ export const receiveMessage = task({
   id: "pal-architect/receive-message",
   retry: { maxAttempts: 3 },
   run: async (payload: ReceiveMessagePayload) => {
-    const { chat_id, text, first_name } = payload;
+    const { chat_id, text, first_name, message_id } = payload;
 
     // 1. Ignore non-text messages silently
     if (!text) {
@@ -61,8 +62,16 @@ export const receiveMessage = task({
     // 3. Handle regular messages
     console.log(`[receive-message] Processing message from chat_id=${chat_id}: "${text.slice(0, 80)}${text.length > 80 ? "…" : ""}"`);
 
-    // Send typing indicator while we work
+    // Send typing indicator + 👀 reaction so the user gets feedback while we
+    // work. Non-blocking — runs in a long-lived worker, so it's reliable
+    // without delaying the agent call. The reaction is cleared once the
+    // response is ready (below).
     await sendTypingIndicator(chat_id);
+    if (message_id !== undefined) {
+      setMessageReaction(chat_id, message_id, "👀").catch((err) =>
+        console.error("[receive-message] Failed to set reaction:", err)
+      );
+    }
 
     // Look up active session in Airtable
     const activeRecord = await findActiveAirtableRecord(chat_id);
@@ -104,6 +113,14 @@ export const receiveMessage = task({
     console.log(`[receive-message] Sending message to agent session_id=${session_id}`);
     const agentResponse = await sendMessageToAgent(session_id, text);
     console.log(`[receive-message] Agent responded with ${agentResponse.length} chars`);
+
+    // Response is ready — clear the 👀 reaction (empty array removes the bot's
+    // reaction). Non-blocking; the reply is sent right after.
+    if (message_id !== undefined) {
+      setMessageReaction(chat_id, message_id, null).catch((err) =>
+        console.error("[receive-message] Failed to clear reaction:", err)
+      );
+    }
 
     // Trigger send-reply (fire-and-forget — it has its own retry)
     await tasks.trigger("pal-architect/send-reply", {
@@ -334,6 +351,27 @@ async function sendTypingIndicator(chat_id: string): Promise<void> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id, action: "typing" }),
+    }
+  );
+}
+
+// Set (or clear) a reaction on the user's message. Pass an emoji to react, or
+// `null` to remove the bot's reaction (Telegram clears it on an empty array).
+async function setMessageReaction(
+  chat_id: string,
+  message_id: number,
+  emoji: string | null
+): Promise<void> {
+  await fetch(
+    `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/setMessageReaction`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id,
+        message_id,
+        reaction: emoji ? [{ type: "emoji", emoji }] : [],
+      }),
     }
   );
 }

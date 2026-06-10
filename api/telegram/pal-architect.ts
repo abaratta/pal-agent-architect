@@ -29,6 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const chat_id = String(message.chat?.id ?? "");
   const text: string | undefined = message.text;
   const first_name: string = message.from?.first_name ?? "User";
+  const message_id: number = message.message_id;
 
   if (!chat_id) {
     console.log("[webhook] No chat_id found, acking");
@@ -41,7 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const handle = await tasks.trigger<typeof receiveMessage>(
       "pal-architect/receive-message",
-      { chat_id, text, first_name }
+      { chat_id, text, first_name, message_id }
     );
     console.log(`[webhook] Triggered receive-message, run_id=${handle.id}`);
   } catch (err) {
