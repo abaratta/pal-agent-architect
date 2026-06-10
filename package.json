@@ -10,11 +10,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trigger.dev/sdk": "^3.3.0"
+    "@trigger.dev/sdk": "4.4.6"
   },
   "devDependencies": {
-    "@vercel/node": "^3.2.0",
     "@types/node": "^20.0.0",
+    "@vercel/node": "^4.0.0",
     "typescript": "^5.4.0"
+  }
+  "engines": {
+    "node": "22.x"
   }
 }
