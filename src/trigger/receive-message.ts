@@ -228,6 +228,22 @@ async function createAgentSession(): Promise<string> {
     .filter(Boolean);
   if (vaultIds.length > 0) body.vault_ids = vaultIds;
 
+  // Attach the persistent memory store so the agent carries context across
+  // sessions. Memory stores can ONLY be attached at session-create time (not
+  // via resources.add), so it must be set here in `resources[]`.
+  const memoryStoreId = (process.env.PAL_ARCHITECT_MEMORY_STORE_ID ?? "").trim();
+  if (memoryStoreId) {
+    body.resources = [
+      {
+        type: "memory_store",
+        memory_store_id: memoryStoreId,
+        access: "read_write",
+        instructions:
+          "Persistent memory for this user across sessions. Check it before starting a task and record durable facts as you learn them.",
+      },
+    ];
+  }
+
   const res = await fetch("https://api.anthropic.com/v1/sessions", {
     method: "POST",
     headers: anthropicHeaders(),
